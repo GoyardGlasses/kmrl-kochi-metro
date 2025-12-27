@@ -1,0 +1,46 @@
+services:
+  mongodb:
+    image: mongo:8
+    container_name: kmrl-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: kmrl
+    volumes:
+      - mongo_data:/data/db
+      - ./kmrl-fullstack/backend/scripts/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+
+  backend:
+    build:
+      context: ./kmrl-fullstack/backend
+      dockerfile: Dockerfile
+    container_name: kmrl-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://admin:password@mongodb:27017/kmrl?authSource=admin
+      JWT_SECRET: kmrl-jwt-secret-change-me
+      PORT: 3000
+    depends_on:
+      - mongodb
+    volumes:
+      - ./kmrl-fullstack/backend/logs:/app/logs
+
+  frontend:
+    build:
+      context: ./kmrl-frontend
+      dockerfile: Dockerfile
+    container_name: kmrl-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:
