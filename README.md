@@ -16,6 +16,8 @@ docker compose up -d
 - Backend API: http://localhost:3000
 - MongoDB runs inside Docker
 
+Then visit http://localhost:8080/admin/signup to create an account and log in.
+
 ## Manual Setup
 
 ### Prerequisites
@@ -37,20 +39,23 @@ npm install
 npm run dev
 ```
 
-Visit http://localhost:8080
+Visit http://localhost:8080/admin/signup to create an account and log in.
 
 ## Features
 
 - Real-time trainset monitoring
-- Conflict alerts and resolution
+- Conflict alerts and resolution with ML suggestions
 - Data ingestion (Maximo, Fitness, UNS/IoT)
 - What-if scenario modeling
 - Audit logs
-- Simple self-service login/signup
+- Simple self-service login/signup (no strict API auth)
 
-## Default Login
+## Authentication
 
-Create an account at `/admin/signup` or log in at `/admin/login`.
+- Create an account at `/admin/signup` (any email, password ≥6 chars)
+- Log in at `/admin/login`
+- After login, access all pages and features
+- APIs are open; no strict JWT enforcement except on `/api/auth`
 
 ## Environment Variables
 
@@ -74,3 +79,7 @@ VITE_ENABLE_MOCK_API=false
 - **Backend**: Node.js, Express, TypeScript, Mongoose, JWT
 - **Database**: MongoDB
 - **Deployment**: Docker, Docker Compose, Nginx
+
+## Detailed Instructions
+
+See [SETUP.md](./SETUP.md) for step-by-step guidance to run the full website.
