@@ -1,0 +1,159 @@
+.details-page {
+  min-height: 100vh;
+  background: #FCFDFD;
+  font-family: Arial, sans-serif;
+  color: #1f2937;
+}
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.not-found {
+  text-align: center;
+}
+
+.not-found button {
+  margin-top: 16px;
+  padding: 10px 16px;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+
+/* Header */
+.details-header {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 16px;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: #374151;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+
+
+
+.details-container {
+  max-width: 1100px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+/* Cards */
+.card {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+}
+
+.header-card {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.header-left {
+  display: flex;
+  gap: 16px;
+}
+
+.train-icon {
+  width: 64px;
+  height: 64px;
+  background: #eef2ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+/* D-badge   */
+.decision-badge {
+  padding: 12px 20px;
+  border-radius: 12px;
+  color: white;
+  text-align: right;
+}
+
+.decision-badge span {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.revenue { color: #16a34a; }
+.standby { color: #ca8a04; }
+.ibl { color: #dc2626; }
+
+.decision-badge.revenue { background: #16a34a; }
+.decision-badge.standby { background: #ca8a04; }
+.decision-badge.ibl { background: #dc2626; }
+
+.rationale {
+  background: #f9fafb;
+  padding: 14px;
+  border-radius: 8px;
+}
+
+/* Fitness */
+.fitness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.fitness-box {
+  padding: 14px;
+  border-radius: 12px;
+  background: #f9fafb;
+  border-left: 5px solid transparent;
+}
+
+.fitness-box.pass { border-color: #16a34a; }
+.fitness-box.warn { border-color: #ca8a04; }
+.fitness-box.fail { border-color: #dc2626; }
+
+.fitness-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+
+
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f9fafb;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+/* mob-responsive */
+@media (max-width: 900px) {
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+}
