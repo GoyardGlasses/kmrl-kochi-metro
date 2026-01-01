@@ -7,12 +7,13 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Home from "./pages/Home";
 import TrainsetDetails from "./pages/TrainsetDetails";
 import WhatIfPage from "./pages/WhatIfPage";
-import NotFound from "./pages/NotFound";
+import NotFound from "@/pages/NotFound";
 import IngestPage from "./pages/IngestPage";
 import IngestionRunsPage from "./pages/IngestionRunsPage";
 import ScoredInductionPage from "./pages/ScoredInductionPage";
 import AuditLogPage from "./pages/AuditLogPage";
-import DecisionDashboard from "./pages/DecisionDashboard";
+import DecisionDashboard from "@/pages/DecisionDashboard";
+import DSADemoPage from "@/pages/DSADemoPage";
 import AdminLogin from "./admin/AdminLogin";
 import AdminSignup from "./admin/AdminSignup";
 import ProtectedRoute from "./auth/ProtectedRoute";
@@ -48,6 +49,7 @@ const App = () => {
                 <Route path="/scored-induction" element={<ScoredInductionPage />} />
                 <Route path="/audit" element={<AuditLogPage />} />
                 <Route path="/decision" element={<DecisionDashboard />} />
+                <Route path="/dsa" element={<DSADemoPage />} />
 
                 <Route path="*" element={<NotFound />} />
               </Routes>
