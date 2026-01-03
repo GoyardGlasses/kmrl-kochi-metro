@@ -16,7 +16,7 @@ docker compose up -d
 - Backend API: http://localhost:3000
 - MongoDB runs inside Docker
 
-Then visit http://localhost:8080/admin/signup to create an account and log in.
+Then visit http://localhost:8080/signup to create an account and log in.
 
 ## Manual Setup
 
@@ -39,7 +39,7 @@ npm install
 npm run dev
 ```
 
-Visit http://localhost:8080/admin/signup to create an account and log in.
+Visit http://localhost:8080/signup to create an account and log in.
 
 ## Features
 
@@ -52,10 +52,10 @@ Visit http://localhost:8080/admin/signup to create an account and log in.
 
 ## Authentication
 
-- Create an account at `/admin/signup` (any email, password ≥6 chars)
-- Log in at `/admin/login`
+- Create an account at `/signup` (any email, password ≥6 chars)
+- Log in at `/login`
 - After login, access all pages and features
-- APIs are open; no strict JWT enforcement except on `/api/auth`
+- All dashboard pages require authentication
 
 ## Environment Variables
 
