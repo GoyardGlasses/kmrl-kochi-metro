@@ -6,13 +6,32 @@ import { getDecisionCounts } from '@/lib/trainsets';
 import { Loader } from '@/components/Loader';
 import KPISummary from '@/components/KPISummary';
 import DraggableTrainsetBoard from '@/components/DraggableTrainsetBoard';
-import { ArrowLeft, FlaskConical, RotateCcw, Save } from 'lucide-react';
+import { ArrowLeft, FlaskConical, RotateCcw, Save, Sparkles, CheckCircle2, XCircle, Lightbulb, TrendingUp } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { showToast } from "@/lib/toast";
 
 interface Rules {
   forceHighBranding: boolean;
   ignoreJobCards: boolean;
   ignoreCleaning: boolean;
   prioritizeLowMileage: boolean;
+}
+
+interface MLSuggestion {
+  type: "improvement" | "warning" | "info" | "optimization";
+  message: string;
+  rule?: keyof Rules;
+  recommendedValue?: boolean;
+  impact?: string;
 }
 
 const WhatIfPage = () => {
@@ -26,6 +45,11 @@ const WhatIfPage = () => {
   });
   const [trainsets, setTrainsets] = useState<Trainset[]>([]);
   const [originalTrainsets, setOriginalTrainsets] = useState<Trainset[]>([]);
+  
+  // ML Suggestions state
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestions, setSuggestions] = useState<MLSuggestion[]>([]);
+  const [applyConfirmed, setApplyConfirmed] = useState(false);
 
   useEffect(() => {
     if (backendTrainsets.length > 0) {
@@ -131,6 +155,149 @@ const WhatIfPage = () => {
     return <span className="text-muted-foreground">0</span>;
   };
 
+  // Generate ML suggestions based on current state
+  const generateSuggestions = (): MLSuggestion[] => {
+    const suggestions: MLSuggestion[] = [];
+    const currentCounts = getDecisionCounts(trainsets);
+    const originalCounts = getDecisionCounts(originalTrainsets);
+    
+    // Analyze fleet state
+    const totalTrainsets = trainsets.length;
+    const highBrandingCount = trainsets.filter(t => t.brandingPriority === 'HIGH').length;
+    const lowMileageCount = trainsets.filter(t => t.mileageKm < 20000).length;
+    const jobCardsOpen = trainsets.filter(t => t.jobCardOpen).length;
+    const cleaningOverdue = trainsets.filter(t => t.cleaningStatus === 'OVERDUE').length;
+    const failuresCount = trainsets.filter(t => 
+      t.fitness.rollingStock.status === 'FAIL' ||
+      t.fitness.signalling.status === 'FAIL' ||
+      t.fitness.telecom.status === 'FAIL'
+    ).length;
+
+    // Revenue optimization suggestions
+    if (currentCounts.REVENUE < originalCounts.REVENUE && highBrandingCount > 0 && !rules.forceHighBranding) {
+      suggestions.push({
+        type: "optimization",
+        message: `Enable "Force High Branding" to potentially increase revenue service by promoting ${highBrandingCount} high-branding trainsets`,
+        rule: "forceHighBranding",
+        recommendedValue: true,
+        impact: `Could increase revenue service by up to ${Math.min(highBrandingCount, originalCounts.STANDBY)} trainsets`
+      });
+    }
+
+    // Low mileage optimization
+    if (lowMileageCount > 0 && !rules.prioritizeLowMileage && currentCounts.REVENUE < totalTrainsets * 0.6) {
+      suggestions.push({
+        type: "optimization",
+        message: `Enable "Low Mileage Priority" to promote ${lowMileageCount} low-mileage trainsets to revenue service`,
+        rule: "prioritizeLowMileage",
+        recommendedValue: true,
+        impact: `Could increase revenue service by up to ${Math.min(lowMileageCount, currentCounts.STANDBY)} trainsets`
+      });
+    }
+
+    // Job cards warning
+    if (jobCardsOpen > 0 && !rules.ignoreJobCards) {
+      suggestions.push({
+        type: "warning",
+        message: `${jobCardsOpen} trainset(s) have open job cards, keeping them in IBL. Consider enabling "Ignore Job Cards" only if maintenance is scheduled separately.`,
+        rule: "ignoreJobCards",
+        recommendedValue: false,
+        impact: `Would move ${jobCardsOpen} trainsets from IBL, but may impact safety`
+      });
+    }
+
+    // Cleaning optimization
+    if (cleaningOverdue > 0 && !rules.ignoreCleaning && currentCounts.STANDBY > 0) {
+      suggestions.push({
+        type: "improvement",
+        message: `${cleaningOverdue} trainset(s) have overdue cleaning. Enabling "Ignore Cleaning" could free up ${Math.min(cleaningOverdue, currentCounts.STANDBY)} trainsets for revenue.`,
+        rule: "ignoreCleaning",
+        recommendedValue: true,
+        impact: `Could convert up to ${Math.min(cleaningOverdue, currentCounts.STANDBY)} standby trainsets to revenue`
+      });
+    }
+
+    // Rule combination suggestions
+    if (rules.forceHighBranding && rules.prioritizeLowMileage && highBrandingCount > 0 && lowMileageCount > 0) {
+      suggestions.push({
+        type: "info",
+        message: "Both branding and mileage rules are active. This combination maximizes revenue potential.",
+      });
+    }
+
+    // Safety warning
+    if (rules.ignoreJobCards && failuresCount > 0) {
+      suggestions.push({
+        type: "warning",
+        message: `Warning: ${failuresCount} trainset(s) have system failures. Ignoring job cards may not be safe.`,
+        rule: "ignoreJobCards",
+        recommendedValue: false,
+        impact: "Safety risk - failures should be addressed before revenue service"
+      });
+    }
+
+    // Revenue maximization strategy
+    const revenuePotential = totalTrainsets - failuresCount - jobCardsOpen;
+    if (currentCounts.REVENUE < revenuePotential * 0.8) {
+      suggestions.push({
+        type: "optimization",
+        message: `Revenue service could potentially reach ${revenuePotential} trainsets (currently ${currentCounts.REVENUE}). Consider enabling optimization rules.`,
+        impact: `Potential increase of ${revenuePotential - currentCounts.REVENUE} trainsets in revenue service`
+      });
+    }
+
+    if (suggestions.length === 0) {
+      suggestions.push({
+        type: "info",
+        message: "Current rule configuration looks optimal for the current fleet state.",
+      });
+    }
+
+    return suggestions;
+  };
+
+  const handleApplyChanges = () => {
+    // First click - show suggestions
+    if (!applyConfirmed) {
+      const mlSuggestions = generateSuggestions();
+      setSuggestions(mlSuggestions);
+      setShowSuggestions(true);
+      return;
+    }
+
+    // Second click - actually apply (save to backend)
+    showToast("Changes applied successfully!", "success");
+    setApplyConfirmed(false);
+    // TODO: Add API call to save changes if needed
+  };
+
+  const applySuggestions = () => {
+    const suggestionsToApply = suggestions.filter(s => s.rule && s.recommendedValue !== undefined);
+    
+    if (suggestionsToApply.length === 0) {
+      showToast("No actionable suggestions to apply", "info");
+      return;
+    }
+
+    const newRules = { ...rules };
+    suggestionsToApply.forEach(suggestion => {
+      if (suggestion.rule && suggestion.recommendedValue !== undefined) {
+        newRules[suggestion.rule] = suggestion.recommendedValue;
+      }
+    });
+
+    setRules(newRules);
+    setTrainsets(applyRules(originalTrainsets, newRules));
+    setShowSuggestions(false);
+    showToast("ML suggestions applied successfully!", "success");
+  };
+
+  const handleConfirmApply = () => {
+    setApplyConfirmed(true);
+    setShowSuggestions(false);
+    handleApplyChanges();
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-40">
@@ -152,10 +319,11 @@ const WhatIfPage = () => {
                 Reset
               </button>
               <button
+                onClick={handleApplyChanges}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
               >
                 <Save className="w-4 h-4" />
-                Apply Changes
+                {applyConfirmed ? "Confirm Apply Changes" : "Get Suggestions & Apply Changes"}
               </button>
             </div>
           </div>
@@ -295,6 +463,111 @@ const WhatIfPage = () => {
           </div>
         </div>
       </main>
+
+      {/* ML Suggestions Dialog */}
+      <Dialog open={showSuggestions} onOpenChange={setShowSuggestions}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-blue-500" />
+              ML Optimization Suggestions
+            </DialogTitle>
+            <DialogDescription>
+              AI-powered recommendations to optimize your fleet allocation based on current state
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-3 py-4">
+            {suggestions.map((suggestion, index) => (
+              <div
+                key={index}
+                className={`p-4 rounded-lg border ${
+                  suggestion.type === "warning"
+                    ? "bg-yellow-500/10 border-yellow-500/30"
+                    : suggestion.type === "optimization"
+                    ? "bg-green-500/10 border-green-500/30"
+                    : suggestion.type === "improvement"
+                    ? "bg-blue-500/10 border-blue-500/30"
+                    : "bg-slate-500/10 border-slate-500/30"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {suggestion.type === "warning" ? (
+                    <XCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                  ) : suggestion.type === "optimization" ? (
+                    <TrendingUp className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                  ) : suggestion.type === "improvement" ? (
+                    <Lightbulb className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground mb-1">
+                      {suggestion.message}
+                    </p>
+                    {suggestion.impact && (
+                      <p className="text-xs text-muted-foreground mt-1 italic">
+                        Impact: {suggestion.impact}
+                      </p>
+                    )}
+                    {suggestion.rule && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          Rule: {suggestion.rule.replace(/([A-Z])/g, ' $1').trim()}
+                        </Badge>
+                        {suggestion.recommendedValue !== undefined && (
+                          <Badge variant={suggestion.recommendedValue ? "default" : "secondary"} className="text-xs">
+                            Recommended: {suggestion.recommendedValue ? "Enable" : "Disable"}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <Badge
+                    variant={
+                      suggestion.type === "warning"
+                        ? "destructive"
+                        : suggestion.type === "optimization"
+                        ? "default"
+                        : suggestion.type === "improvement"
+                        ? "default"
+                        : "secondary"
+                    }
+                    className="flex-shrink-0"
+                  >
+                    {suggestion.type}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <DialogFooter className="flex gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSuggestions(false);
+                setApplyConfirmed(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={applySuggestions}
+              className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border-blue-500/30"
+            >
+              Apply Suggestions
+            </Button>
+            <Button 
+              onClick={handleConfirmApply} 
+              className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
+            >
+              Apply Changes Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -61,7 +61,7 @@ const Home = () => {
   /*  logout */
   const handleLogout = async () => {
     await logout();
-    navigate("/admin/login", { replace: true });
+    navigate("/login", { replace: true });
   };
 
   if (isLoading) {

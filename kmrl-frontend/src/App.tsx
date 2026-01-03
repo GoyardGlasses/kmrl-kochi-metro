@@ -14,14 +14,14 @@ import ScoredInductionPage from "./pages/ScoredInductionPage";
 import AuditLogPage from "./pages/AuditLogPage";
 import DecisionDashboard from "@/pages/DecisionDashboard";
 import DSADemoPage from "@/pages/DSADemoPage";
-import AdminLogin from "./admin/AdminLogin";
-import AdminSignup from "./admin/AdminSignup";
-import ProtectedRoute from "./auth/ProtectedRoute";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 
 import { ServicesProvider } from "@/context/ServicesProvider";
 import { AuthProvider } from "@/context/AuthProvider";
 import Toast from "@/components/Toast";
 import DebugPanel from "@/components/DebugPanel";
+import ProtectedRoute from "./auth/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -38,18 +38,19 @@ const App = () => {
 
             <BrowserRouter>
               <Routes>
-                <Route path="/admin/login" element={<AdminLogin />} />
-                <Route path="/admin/signup" element={<AdminSignup />} />
-
-                <Route path="/" element={<Home />} />
-                <Route path="/trainset/:id" element={<TrainsetDetails />} />
-                <Route path="/whatif" element={<WhatIfPage />} />
-                <Route path="/ingest" element={<IngestPage />} />
-                <Route path="/ingestion-runs" element={<IngestionRunsPage />} />
-                <Route path="/scored-induction" element={<ScoredInductionPage />} />
-                <Route path="/audit" element={<AuditLogPage />} />
-                <Route path="/decision" element={<DecisionDashboard />} />
-                <Route path="/dsa" element={<DSADemoPage />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                
+                {/* Protected Routes - require authentication */}
+                <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+                <Route path="/trainset/:id" element={<ProtectedRoute><TrainsetDetails /></ProtectedRoute>} />
+                <Route path="/whatif" element={<ProtectedRoute><WhatIfPage /></ProtectedRoute>} />
+                <Route path="/ingest" element={<ProtectedRoute><IngestPage /></ProtectedRoute>} />
+                <Route path="/ingestion-runs" element={<ProtectedRoute><IngestionRunsPage /></ProtectedRoute>} />
+                <Route path="/scored-induction" element={<ProtectedRoute><ScoredInductionPage /></ProtectedRoute>} />
+                <Route path="/audit" element={<ProtectedRoute><AuditLogPage /></ProtectedRoute>} />
+                <Route path="/decision" element={<ProtectedRoute><DecisionDashboard /></ProtectedRoute>} />
+                <Route path="/dsa" element={<ProtectedRoute><DSADemoPage /></ProtectedRoute>} />
 
                 <Route path="*" element={<NotFound />} />
               </Routes>

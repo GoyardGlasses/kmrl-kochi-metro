@@ -8,7 +8,7 @@ export const env = {
   mongoUri: process.env.MONGODB_URI || "mongodb://localhost:27017/kmrl",
   jwtSecret: process.env.JWT_SECRET || "dev-secret-key",
   jwtExpire: process.env.JWT_EXPIRE || "7d",
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:8081",
+  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:8080",
   maximoJobCardsCsvPath: process.env.MAXIMO_JOBCARDS_CSV_PATH || "C:/kmrl-imports/maximo/jobcards.csv",
   maximoJobCardsSchedule: process.env.MAXIMO_JOBCARDS_SCHEDULE || "21:30",
   fitnessJsonPath: process.env.FITNESS_JSON_PATH || "C:/kmrl-imports/fitness/fitness.json",

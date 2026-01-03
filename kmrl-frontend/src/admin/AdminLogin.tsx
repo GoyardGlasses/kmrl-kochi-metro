@@ -13,6 +13,7 @@ const AdminLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -24,9 +25,16 @@ const AdminLogin = () => {
     e.preventDefault();
 
     if (!email || !password) {
+      setLocalError("Please fill in all fields");
       return;
     }
 
+    if (password.length < 6) {
+      setLocalError("Password must be at least 6 characters long");
+      return;
+    }
+
+    setLocalError(null);
     try {
       await login({ email, password });
     } catch {
@@ -36,7 +44,7 @@ const AdminLogin = () => {
 
   return (
     <div className="admin-login-page">
-<div className="login-card animate-slide-in">
+      <div className="login-card animate-slide-in">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 mb-4">
@@ -51,7 +59,7 @@ const AdminLogin = () => {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5 relative z-20">
           {/* Email */}
           <div className="space-y-2">
             <Label className="text-sm font-medium text-foreground/90">
@@ -63,9 +71,14 @@ const AdminLogin = () => {
                 type="text"
                 placeholder="Enter email id"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="pl-11"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (localError) setLocalError(null);
+                }}
+                className="pl-11 relative z-20"
                 required
+                autoComplete="email"
+                disabled={status === "loading"}
               />
             </div>
           </div>
@@ -81,9 +94,14 @@ const AdminLogin = () => {
                 type={showPassword ? "text" : "password"}
                 placeholder="Enter password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="pl-11 pr-11"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (localError) setLocalError(null);
+                }}
+                className="pl-11 pr-11 relative z-20"
                 required
+                autoComplete="current-password"
+                disabled={status === "loading"}
               />
               <button
                 type="button"
@@ -100,17 +118,19 @@ const AdminLogin = () => {
           </div>
 
           {/* Error */}
-          {authError && (
-            <p className="text-sm text-red-400 text-center">
-              {authError}
-            </p>
+          {(authError || localError) && (
+            <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20">
+              <p className="text-sm text-red-400 text-center">
+                {authError || localError}
+              </p>
+            </div>
           )}
 
           {/* Submit */}
           <Button
             type="submit"
             size="lg"
-  className="w-full mt-6 bg-[#93A7BB] hover:bg-[#7F8FA3] text-white"
+            className="w-full mt-6 bg-[#93A7BB] hover:bg-[#7F8FA3] text-white"
             disabled={status === "loading"}
           >
             {status === "loading" ? (
@@ -126,18 +146,24 @@ const AdminLogin = () => {
 
         {/* Footer */}
         <div className="mt-6 flex items-center justify-between text-sm">
-          <button className="text-muted-foreground hover:text-primary transition-colors">
+          <button 
+            type="button"
+            className="text-muted-foreground hover:text-primary transition-colors"
+            onClick={() => {
+              // Forgot password functionality can be added here
+              alert("Please contact your administrator to reset your password.");
+            }}
+          >
             Forgot password?
           </button>
           <button
+            type="button"
             className="text-primary hover:text-primary/80 transition-colors font-medium"
             onClick={() => navigate("/admin/signup")}
           >
             Sign up
           </button>
         </div>
-
-        
       </div>
     </div>
   );

@@ -43,9 +43,19 @@ export class HttpClient {
         headers: { ...this.defaultHeaders, ...this.getAuthHeaders(), ...init?.headers },
       });
       if (!response.ok) {
-        const error = `GET ${path} failed with ${response.status}`;
-        logApiError("GET", path, { status: response.status });
-        throw new Error(error);
+        let errorMessage = `GET ${path} failed with ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch {
+          // If response is not JSON, use default error message
+        }
+        logApiError("GET", path, { status: response.status, error: errorMessage });
+        throw new Error(errorMessage);
       }
       const data = await response.json() as T;
       logApiResponse("GET", path, response.status, data);
@@ -71,9 +81,21 @@ export class HttpClient {
         },
       });
       if (!response.ok) {
-        const error = `POST ${path} failed with ${response.status}`;
-        logApiError("POST", path, { status: response.status });
-        throw new Error(error);
+        let errorMessage = `POST ${path} failed with ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          } else if (errorData.errors && Array.isArray(errorData.errors)) {
+            errorMessage = errorData.errors.map((e: any) => e.msg || e.message).join(", ");
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch {
+          // If response is not JSON, use default error message
+        }
+        logApiError("POST", path, { status: response.status, error: errorMessage });
+        throw new Error(errorMessage);
       }
       const data = await response.json() as T;
       logApiResponse("POST", path, response.status, data);
@@ -95,9 +117,19 @@ export class HttpClient {
         headers: { ...this.defaultHeaders, ...this.getAuthHeaders(), ...init?.headers },
       });
       if (!response.ok) {
-        const error = `PATCH ${path} failed with ${response.status}`;
-        logApiError("PATCH", path, { status: response.status });
-        throw new Error(error);
+        let errorMessage = `PATCH ${path} failed with ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch {
+          // If response is not JSON, use default error message
+        }
+        logApiError("PATCH", path, { status: response.status, error: errorMessage });
+        throw new Error(errorMessage);
       }
       const data = await response.json() as T;
       logApiResponse("PATCH", path, response.status, data);
@@ -119,9 +151,19 @@ export class HttpClient {
         headers: { ...this.defaultHeaders, ...this.getAuthHeaders(), ...init?.headers },
       });
       if (!response.ok) {
-        const error = `PUT ${path} failed with ${response.status}`;
-        logApiError("PUT", path, { status: response.status });
-        throw new Error(error);
+        let errorMessage = `PUT ${path} failed with ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch {
+          // If response is not JSON, use default error message
+        }
+        logApiError("PUT", path, { status: response.status, error: errorMessage });
+        throw new Error(errorMessage);
       }
       const data = await response.json() as T;
       logApiResponse("PUT", path, response.status, data);
@@ -142,9 +184,19 @@ export class HttpClient {
         headers: { ...this.defaultHeaders, ...this.getAuthHeaders(), ...init?.headers },
       });
       if (!response.ok) {
-        const error = `DELETE ${path} failed with ${response.status}`;
-        logApiError("DELETE", path, { status: response.status });
-        throw new Error(error);
+        let errorMessage = `DELETE ${path} failed with ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch {
+          // If response is not JSON, use default error message
+        }
+        logApiError("DELETE", path, { status: response.status, error: errorMessage });
+        throw new Error(errorMessage);
       }
       const data = await response.json() as T;
       logApiResponse("DELETE", path, response.status, data);

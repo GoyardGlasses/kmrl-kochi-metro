@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Route, Calendar, TrendingUp, AlertCircle, CheckCircle, ArrowLeft, Home, Brain, TrendingUp as TrendingUpIcon } from "lucide-react";
+import { Loader2, Route, Calendar, TrendingUp, AlertCircle, CheckCircle, ArrowLeft, Home, Brain, TrendingUp as TrendingUpIcon, Cpu } from "lucide-react";
 import { httpClient } from "@/services/httpClient";
 
 interface ScheduleResult {
@@ -76,19 +76,24 @@ const DSADemoPage = () => {
   const [loading, setLoading] = useState<{ [key: string]: boolean }>({});
   const [results, setResults] = useState<{ [key: string]: any }>({});
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [error, setError] = useState<string | null>(null);
 
   // Scheduling state
   const [horizonHours, setHorizonHours] = useState("24");
   const [schedulingObjective, setSchedulingObjective] = useState("revenue");
+  const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
 
   // Routing state
   const [fromStation, setFromStation] = useState("ALUVA");
   const [toStation, setToStation] = useState("TERMS");
-  const [trainsetId, setTrainsetId] = useState("TS-01");
+  const [routeTrainsetId, setRouteTrainsetId] = useState("TS-01");
+  const [routeResult, setRouteResult] = useState<RouteResult | null>(null);
 
   // Prediction state
   const [predictionHorizon, setPredictionHorizon] = useState("30");
   const [predictionMetrics, setPredictionMetrics] = useState(["fitness", "mileage", "cleaning"]);
+  const [predictionTrainsetId, setPredictionTrainsetId] = useState("TS-01");
+  const [predictionResult, setPredictionResult] = useState<PredictionResult | null>(null);
 
   const stations = [
     "ALUVA", "PULI", "COMP", "AMB", "MUTT", "KALOOR", "COCH", "PATHA", "EDAP",
@@ -99,28 +104,31 @@ const DSADemoPage = () => {
 
   const runScheduling = async (algorithm: "greedy" | "dp") => {
     setLoading({ ...loading, [`schedule-${algorithm}`]: true });
-    setErrors({ ...errors, [`schedule-${algorithm}`]: null });
+    setErrors({ ...errors, [`schedule-${algorithm}`]: "" });
+    setError(null);
     try {
       const response = await httpClient.post<ScheduleResult>(`/dsa/schedule/${algorithm}`, {
         horizonHours: parseInt(horizonHours),
         objective: schedulingObjective
       });
       setResults({ ...results, [`schedule-${algorithm}`]: response });
+      setScheduleResult(response);
     } catch (err: any) {
-      setErrors({ ...errors, [`schedule-${algorithm}`]: err.message || "Scheduling failed" });
-      setError(err.message || "Scheduling failed");
+      const errorMsg = err.message || "Scheduling failed";
+      setErrors({ ...errors, [`schedule-${algorithm}`]: errorMsg });
+      setError(errorMsg);
     } finally {
-      setLoading(null);
+      setLoading({ ...loading, [`schedule-${algorithm}`]: false });
     }
   };
 
   const runRouting = async (algorithm: "dijkstra" | "astar") => {
-    setLoading(`route-${algorithm}`);
+    setLoading({ ...loading, [`route-${algorithm}`]: true });
     setError(null);
     try {
       const response = await httpClient.post<RouteResult>(`/dsa/route/${algorithm}`, {
-        from: routeFrom,
-        to: routeTo,
+        from: fromStation,
+        to: toStation,
         trainsetId: routeTrainsetId,
         avoidConflicts: true
       });
@@ -128,25 +136,25 @@ const DSADemoPage = () => {
     } catch (err: any) {
       setError(err.message || "Routing failed");
     } finally {
-      setLoading(null);
+      setLoading({ ...loading, [`route-${algorithm}`]: false });
     }
   };
 
   const runPrediction = async (algorithm: "basic" | "advanced") => {
-    setLoading(`prediction-${algorithm}`);
+    setLoading({ ...loading, [`prediction-${algorithm}`]: true });
     setError(null);
     try {
       const endpoint = algorithm === "advanced" ? "/dsa/predict/advanced" : "/dsa/predict";
       const response = await httpClient.post<PredictionResult>(endpoint, {
         trainsetId: predictionTrainsetId,
         horizonDays: parseInt(predictionHorizon),
-        metrics: ["fitness", "mileage", "cleaning"]
+        metrics: predictionMetrics
       });
       setPredictionResult(response);
     } catch (err: any) {
       setError(err.message || "Prediction failed");
     } finally {
-      setLoading(null);
+      setLoading({ ...loading, [`prediction-${algorithm}`]: false });
     }
   };
 
@@ -213,19 +221,21 @@ const DSADemoPage = () => {
       </div>
 
       {/* Status Bar */}
-      <div className="bg-gradient-to-r from-orange-50 to-blue-50 border rounded-lg p-4">
+      <div className="bg-gradient-to-r from-orange-500/20 to-blue-500/20 border border-orange-500/30 rounded-lg p-4 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-sm font-medium">All Systems Operational</span>
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-lg shadow-green-500/50" />
+              <span className="text-sm font-medium text-foreground">All Systems Operational</span>
             </div>
-            <div className="text-sm text-muted-foreground">
+            <div className="text-sm text-foreground/90 font-medium">
               3 Algorithms Active • 127 Predictions Today • 94.2% Optimization Score
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-xs">Last Updated: Just Now</Badge>
+            <Badge variant="secondary" className="text-xs bg-secondary/80 text-secondary-foreground border-secondary-foreground/20">
+              Last Updated: Just Now
+            </Badge>
           </div>
         </div>
       </div>
@@ -263,14 +273,14 @@ const DSADemoPage = () => {
                   <Input
                     id="horizon"
                     type="number"
-                    value={scheduleHorizon}
-                    onChange={(e) => setScheduleHorizon(e.target.value)}
+                    value={horizonHours}
+                    onChange={(e) => setHorizonHours(e.target.value)}
                     placeholder="24"
                   />
                 </div>
                 <div>
                   <Label htmlFor="objective">Objective</Label>
-                  <Select value={scheduleObjective} onValueChange={setScheduleObjective}>
+                  <Select value={schedulingObjective} onValueChange={setSchedulingObjective}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -285,21 +295,21 @@ const DSADemoPage = () => {
               <div className="flex gap-2">
                 <Button
                   onClick={() => runScheduling("greedy")}
-                  disabled={loading === "schedule-greedy"}
+                  disabled={loading["schedule-greedy"]}
                   className="flex-1"
                 >
-                  {loading === "schedule-greedy" ? (
+                  {loading["schedule-greedy"] ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : null}
                   Greedy Algorithm
                 </Button>
                 <Button
                   onClick={() => runScheduling("dp")}
-                  disabled={loading === "schedule-dp"}
+                  disabled={loading["schedule-dp"]}
                   variant="outline"
                   className="flex-1"
                 >
-                  {loading === "schedule-dp" ? (
+                  {loading["schedule-dp"] ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : null}
                   Dynamic Programming
@@ -383,33 +393,27 @@ const DSADemoPage = () => {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label htmlFor="from">From Station</Label>
-                  <Select value={routeFrom} onValueChange={setRouteFrom}>
+                  <Select value={fromStation} onValueChange={setFromStation}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ALUVA">Aluva</SelectItem>
-                      <SelectItem value="EDAP">Edapally</SelectItem>
-                      <SelectItem value="KALAM">Kalamassery</SelectItem>
-                      <SelectItem value="VYTILA">Vytilla</SelectItem>
-                      <SelectItem value="ERNA">Ernakulam</SelectItem>
-                      <SelectItem value="TERMS">Terminal</SelectItem>
+                      {stations.map((station) => (
+                        <SelectItem key={station} value={station}>{station}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label htmlFor="to">To Station</Label>
-                  <Select value={routeTo} onValueChange={setRouteTo}>
+                  <Select value={toStation} onValueChange={setToStation}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ALUVA">Aluva</SelectItem>
-                      <SelectItem value="EDAP">Edapally</SelectItem>
-                      <SelectItem value="KALAM">Kalamassery</SelectItem>
-                      <SelectItem value="VYTILA">Vytilla</SelectItem>
-                      <SelectItem value="ERNA">Ernakulam</SelectItem>
-                      <SelectItem value="TERMS">Terminal</SelectItem>
+                      {stations.map((station) => (
+                        <SelectItem key={station} value={station}>{station}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -426,21 +430,21 @@ const DSADemoPage = () => {
               <div className="flex gap-2">
                 <Button
                   onClick={() => runRouting("dijkstra")}
-                  disabled={loading === "route-dijkstra"}
+                  disabled={loading["route-dijkstra"]}
                   className="flex-1"
                 >
-                  {loading === "route-dijkstra" ? (
+                  {loading["route-dijkstra"] ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : null}
                   Dijkstra Algorithm
                 </Button>
                 <Button
                   onClick={() => runRouting("astar")}
-                  disabled={loading === "route-astar"}
+                  disabled={loading["route-astar"]}
                   variant="outline"
                   className="flex-1"
                 >
-                  {loading === "route-astar" ? (
+                  {loading["route-astar"] ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : null}
                   A* Algorithm
@@ -558,21 +562,21 @@ const DSADemoPage = () => {
               <div className="flex gap-2">
                 <Button
                   onClick={() => runPrediction("basic")}
-                  disabled={loading === "prediction-basic"}
+                  disabled={loading["prediction-basic"]}
                   className="flex-1"
                 >
-                  {loading === "prediction-basic" ? (
+                  {loading["prediction-basic"] ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : null}
                   Basic Forecasting
                 </Button>
                 <Button
                   onClick={() => runPrediction("advanced")}
-                  disabled={loading === "prediction-advanced"}
+                  disabled={loading["prediction-advanced"]}
                   variant="outline"
                   className="flex-1"
                 >
-                  {loading === "prediction-advanced" ? (
+                  {loading["prediction-advanced"] ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : null}
                   ARIMA Forecasting
