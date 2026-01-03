@@ -6,6 +6,8 @@ import { authMiddleware, AuthRequest } from "@/middleware/auth";
 import { applySimulationRules, buildExplanation, detectConflicts } from "@/utils/simulation";
 import { rankTrainsets, DEFAULT_WEIGHTS } from "@/utils/scoring";
 import { ScoringConfig } from "@/models/ScoringConfig";
+import { WhatIfSimulationResult } from "@/models/SimulationResult";
+import { MLSuggestion } from "@/models/MLSuggestion";
 
 const router = Router();
 
@@ -92,11 +94,37 @@ router.get("/ml-suggestions", async (req, res: any) => {
           suggestedDecision: suggestion,
           confidence,
           reasons: reasons.slice(0, 4),
+          score,
         };
       })
       .filter((s) => (onlyChanged ? s.suggestedDecision !== s.currentDecision : true))
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, limit);
+
+    // Save ML suggestions to MongoDB
+    try {
+      const timestamp = Date.now();
+      const suggestionDocs = suggestions.map((s) => ({
+        suggestionId: `ml-${s.trainsetId}-${timestamp}`,
+        trainsetId: s.trainsetId,
+        currentDecision: s.currentDecision,
+        suggestedDecision: s.suggestedDecision,
+        confidence: s.confidence,
+        reasons: s.reasons,
+        metadata: { score: s.score },
+      }));
+
+      // Use insertMany with ordered: false to handle duplicates gracefully
+      await MLSuggestion.insertMany(suggestionDocs, { ordered: false }).catch((err: any) => {
+        // Ignore duplicate key errors
+        if (err.code !== 11000) {
+          console.error("Error saving ML suggestions:", err);
+        }
+      });
+    } catch (saveError) {
+      console.error("Failed to save ML suggestions to MongoDB:", saveError);
+      // Continue even if save fails
+    }
 
     res.json({ generatedAt: new Date().toISOString(), limit, onlyChanged, suggestions });
   } catch (error) {
@@ -339,19 +367,44 @@ router.post(
       const weights = scoringConfig?.weights || DEFAULT_WEIGHTS;
       const ranked = rankTrainsets(simulated as any, weights);
 
+      // Calculate result counts
+      const resultCounts = ranked.reduce(
+        (acc: any, t: any) => {
+          acc[t.recommendation] = (acc[t.recommendation] || 0) + 1;
+          return acc;
+        },
+        {}
+      );
+
+      // Save simulation result to MongoDB
+      const simulationId = `sim-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      try {
+        await WhatIfSimulationResult.create({
+          simulationId,
+          rules,
+          resultCounts,
+          results: ranked.map((t: any) => ({
+            id: t.id,
+            recommendation: t.recommendation,
+            score: t.score,
+            reason: t.reason,
+            ...t,
+          })),
+          createdBy: req.user?.email || "SYSTEM",
+        });
+      } catch (saveError) {
+        console.error("Failed to save simulation result to MongoDB:", saveError);
+        // Continue even if save fails
+      }
+
       await AuditLog.create({
         action: "SIMULATE",
         actorEmail: req.user?.email,
         actorId: req.user?.id,
         metadata: {
           rules,
-          resultCounts: ranked.reduce(
-            (acc: any, t: any) => {
-              acc[t.recommendation] = (acc[t.recommendation] || 0) + 1;
-              return acc;
-            },
-            {}
-          ),
+          resultCounts,
+          simulationId,
         },
       });
 
