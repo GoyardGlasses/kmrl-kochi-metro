@@ -29,8 +29,7 @@ router.get('/readiness', async (req, res) => {
         factors,
         blockers,
         warnings,
-        recommendations,
-        calculatedAt: new Date()
+        recommendations
       });
     }
 
@@ -66,8 +65,7 @@ router.post('/readiness/:trainsetId', async (req, res) => {
       factors,
       blockers,
       warnings,
-      recommendations,
-      calculatedAt: new Date()
+      recommendations
     };
 
     res.json(readiness);
@@ -500,9 +498,7 @@ async function optimizeTrainset(trainset: any, targetKpi?: string, optimizationR
       cost: recommendation === 'IBL' ? 85 : 92,
       brandingCompliance: brandingContract && brandingContract.priority === 'HIGH' && recommendation === 'REVENUE' ? 95 : 88,
       fleetAvailability: recommendation === 'REVENUE' ? 88 : 85
-    },
-    optimizationRunId: optimizationRunId || `run-${Date.now()}`,
-    calculatedAt: new Date()
+    }
   };
 }
 

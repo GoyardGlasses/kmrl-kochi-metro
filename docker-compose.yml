@@ -30,6 +30,8 @@ services:
       - mongodb
     volumes:
       - ./kmrl-fullstack/backend/logs:/app/logs
+    networks:
+      - default
 
   frontend:
     build:
@@ -41,6 +43,8 @@ services:
       - "8080:80"
     depends_on:
       - backend
+    networks:
+      - default
 
 volumes:
   mongo_data:

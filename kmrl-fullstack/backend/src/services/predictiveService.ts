@@ -394,7 +394,7 @@ export class PredictiveService {
     const highRiskFitness = predictions.fitness.find(p => p.riskLevel === 'high');
     if (highRiskFitness) {
       recommendations.push({
-        type: 'fitness_inspection',
+        type: 'fitness_check',
         priority: 'high',
         recommendedDate: highRiskFitness.date,
         estimatedCost: 8000,

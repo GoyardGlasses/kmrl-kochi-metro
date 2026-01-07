@@ -43,12 +43,12 @@ export class SchedulingService {
     const numSchedules = trainsets.length > 0 ? Math.min(trainsets.length, 5) : 5;
     
     for (let i = 0; i < numSchedules; i++) {
-      const trainset = trainsets[i] || { trainsetId: `TS-${String(i + 1).padStart(2, '0')}` };
+      const trainset = trainsets[i] || { id: `TS-${String(i + 1).padStart(2, '0')}` };
       const startTime = new Date(Date.now() + i * 2 * 60 * 60 * 1000); // Every 2 hours
       const endTime = new Date(startTime.getTime() + 4 * 60 * 60 * 1000); // 4 hour duration
 
       const scheduled: ScheduledTrainset = {
-        trainsetId: trainset.trainsetId || `TS-${String(i + 1).padStart(2, '0')}`,
+        trainsetId: trainset.id || `TS-${String(i + 1).padStart(2, '0')}`,
         startTime,
         endTime,
         revenue: this.calculateRevenue(trainset, { startTime, endTime }),
@@ -78,12 +78,12 @@ export class SchedulingService {
     
     // Create optimal schedule using DP-like approach
     for (let i = 0; i < numSchedules; i++) {
-      const trainset = trainsets[i] || { trainsetId: `TS-${String(i + 1).padStart(2, '0')}` };
+      const trainset = trainsets[i] || { id: `TS-${String(i + 1).padStart(2, '0')}` };
       const startTime = new Date(Date.now() + i * 3 * 60 * 60 * 1000); // Every 3 hours
       const endTime = new Date(startTime.getTime() + 3 * 60 * 60 * 1000); // 3 hour duration
 
       const scheduled: ScheduledTrainset = {
-        trainsetId: trainset.trainsetId || `TS-${String(i + 1).padStart(2, '0')}`,
+        trainsetId: trainset.id || `TS-${String(i + 1).padStart(2, '0')}`,
         startTime,
         endTime,
         revenue: this.calculateHourlyRevenue(trainset) * 3, // 3 hours

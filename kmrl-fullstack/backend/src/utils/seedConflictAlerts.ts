@@ -13,7 +13,7 @@ export async function seedConflictAlerts() {
     const brandingContracts = await BrandingContract.find({});
     const mileageBalances = await MileageBalance.find({});
     
-    const alerts = [];
+    const alerts: any[] = [];
     
     // Generate fitness expiry alerts
     fitnessCerts.forEach(cert => {

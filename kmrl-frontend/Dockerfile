@@ -2,6 +2,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Accept build arguments for environment variables
+ARG VITE_API_BASE_URL=http://localhost:3000/api
+ARG VITE_ENABLE_MOCK_API=false
+
+# Set as environment variables for Vite build
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_ENABLE_MOCK_API=$VITE_ENABLE_MOCK_API
+
 COPY package*.json ./
 RUN npm ci
 

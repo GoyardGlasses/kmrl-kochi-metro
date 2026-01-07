@@ -1,0 +1,79 @@
+# Production Docker Compose Configuration
+# Usage: docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  mongodb:
+    image: mongo:8
+    container_name: kmrl-mongo-prod
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-change-this-password}
+      MONGO_INITDB_DATABASE: kmrl
+    volumes:
+      - mongo_data_prod:/data/db
+      - ./kmrl-fullstack/backend/scripts/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - kmrl-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./kmrl-fullstack/backend
+      dockerfile: Dockerfile
+    container_name: kmrl-backend-prod
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-change-this-password}@mongodb:27017/kmrl?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:-change-this-jwt-secret}
+      PORT: 3000
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./kmrl-fullstack/backend/logs:/app/logs
+    networks:
+      - kmrl-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./kmrl-frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:3000/api}
+    container_name: kmrl-frontend-prod
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - kmrl-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mongo_data_prod:
+
+networks:
+  kmrl-network:
+    driver: bridge
+

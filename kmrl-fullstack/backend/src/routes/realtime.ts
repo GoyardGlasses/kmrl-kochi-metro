@@ -397,7 +397,7 @@ async function updateFitnessFromWhatsApp(trainsetId: string, department: string,
     
     return { success: true, fitnessCert };
   } catch (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -415,7 +415,7 @@ async function updateMileageFromWhatsApp(trainsetId: string, mileage: number, fr
     
     return { success: true, mileageBalance };
   } catch (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -431,7 +431,7 @@ async function updateCleaningFromWhatsApp(trainsetId: string, status: string, ba
     
     return { success: true, message: 'Cleaning status updated' };
   } catch (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -450,7 +450,7 @@ async function updateBrandingFromWhatsApp(trainsetId: string, hours: number, fro
     
     return { success: true, contract };
   } catch (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
