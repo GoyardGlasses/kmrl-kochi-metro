@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Filter, RefreshCw, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Filter, RefreshCw, Info, Sparkles, Lightbulb, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -19,7 +19,16 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
+  DialogClose,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useScoredInduction } from "@/hooks/useScoredInduction";
 import { useScoringConfig } from "@/hooks/useScoringConfig";
 import { toast } from "sonner";
@@ -38,6 +47,12 @@ export default function ScoredInductionPage() {
 
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsTrainset, setDetailsTrainset] = useState<ScoredTrainset | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestions, setSuggestions] = useState<{
+    minScore?: number;
+    weightAdjustments?: Partial<ScoringWeights>;
+    reasons: string[];
+  } | null>(null);
 
   const scoringConfig = useScoringConfig();
 
@@ -89,9 +104,156 @@ export default function ScoredInductionPage() {
     }
   };
 
+  const generateMLSuggestions = (showToast = true) => {
+    if (!data || !ranked || ranked.length === 0) {
+      if (showToast) toast.error("No data available for suggestions");
+      return;
+    }
+
+    const reasons: string[] = [];
+    const weightAdjustments: Partial<ScoringWeights> = {};
+    let suggestedMinScore: number | undefined;
+
+    // Analyze score distribution
+    const scores = ranked.map(t => t.score);
+    const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+    const medianScore = scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)];
+    const minScoreValue = Math.min(...scores);
+    const maxScoreValue = Math.max(...scores);
+
+    // Suggest min score based on distribution
+    if (minScore.trim() === "") {
+      // Suggest a min score that filters out bottom 20% but keeps most trainsets
+      const percentile20 = scores.sort((a, b) => a - b)[Math.floor(scores.length * 0.2)];
+      suggestedMinScore = Math.max(0, Math.floor(percentile20));
+      reasons.push(`Suggested min score: ${suggestedMinScore} (filters bottom 20% of trainsets)`);
+    } else {
+      const currentMin = Number(minScore);
+      if (currentMin > medianScore) {
+        reasons.push(`Current min score (${currentMin}) is above median (${medianScore.toFixed(1)}), consider lowering to ${Math.floor(medianScore * 0.7)}`);
+      } else if (currentMin < minScoreValue) {
+        reasons.push(`Current min score (${currentMin}) is below minimum score (${minScoreValue.toFixed(1)}), consider raising to ${Math.floor(minScoreValue)}`);
+      }
+    }
+
+    // Analyze fitness distribution
+    const fitnessPassCount = ranked.filter(t => 
+      t.fitness.rollingStock.status === "PASS" && 
+      t.fitness.signalling.status === "PASS" && 
+      t.fitness.telecom.status === "PASS"
+    ).length;
+    const fitnessWarnCount = ranked.filter(t => 
+      [t.fitness.rollingStock.status, t.fitness.signalling.status, t.fitness.telecom.status].includes("WARN")
+    ).length;
+    const fitnessFailCount = ranked.filter(t => 
+      [t.fitness.rollingStock.status, t.fitness.signalling.status, t.fitness.telecom.status].includes("FAIL")
+    ).length;
+
+    const fitnessPassRatio = fitnessPassCount / ranked.length;
+    const fitnessFailRatio = fitnessFailCount / ranked.length;
+
+    if (fitnessFailRatio > 0.15) {
+      weightAdjustments.fitnessFail = Math.round(weights.fitnessFail * 1.2);
+      reasons.push(`High failure rate (${(fitnessFailRatio * 100).toFixed(1)}%), increase fitnessFail penalty by 20%`);
+    } else if (fitnessPassRatio > 0.8) {
+      weightAdjustments.fitnessPass = Math.round(weights.fitnessPass * 1.1);
+      reasons.push(`High pass rate (${(fitnessPassRatio * 100).toFixed(1)}%), increase fitnessPass reward by 10%`);
+    }
+
+    // Analyze mileage distribution
+    const mileages = ranked.map(t => t.mileageKm);
+    const avgMileage = mileages.reduce((a, b) => a + b, 0) / mileages.length;
+    const highMileageCount = ranked.filter(t => t.mileageKm > 40000).length;
+    const lowMileageCount = ranked.filter(t => t.mileageKm < 15000).length;
+
+    if (highMileageCount / ranked.length > 0.3) {
+      weightAdjustments.highMileage = Math.round(weights.highMileage * 1.15);
+      reasons.push(`Many high-mileage trainsets (${highMileageCount}), increase highMileage weight by 15%`);
+    }
+    if (lowMileageCount / ranked.length > 0.3) {
+      weightAdjustments.lowMileage = Math.round(weights.lowMileage * 1.1);
+      reasons.push(`Many low-mileage trainsets (${lowMileageCount}), increase lowMileage reward by 10%`);
+    }
+
+    // Analyze branding priority
+    const brandingHighCount = ranked.filter(t => t.brandingPriority === "HIGH").length;
+    const brandingHighRatio = brandingHighCount / ranked.length;
+    if (brandingHighRatio > 0.4) {
+      weightAdjustments.brandingHigh = Math.round(weights.brandingHigh * 1.1);
+      reasons.push(`Many high-priority branding contracts (${brandingHighCount}), increase brandingHigh weight by 10%`);
+    }
+
+    // Analyze cleaning status
+    const cleaningOverdueCount = ranked.filter(t => t.cleaningStatus === "OVERDUE").length;
+    const cleaningOverdueRatio = cleaningOverdueCount / ranked.length;
+    if (cleaningOverdueRatio > 0.2) {
+      weightAdjustments.cleaningOverdue = Math.round(weights.cleaningOverdue * 1.2);
+      reasons.push(`High overdue cleaning rate (${(cleaningOverdueRatio * 100).toFixed(1)}%), increase cleaningOverdue penalty by 20%`);
+    }
+
+    // Analyze job cards
+    const jobCardOpenCount = ranked.filter(t => t.jobCardOpen).length;
+    const jobCardOpenRatio = jobCardOpenCount / ranked.length;
+    if (jobCardOpenRatio > 0.25) {
+      weightAdjustments.jobCardOpen = Math.round(weights.jobCardOpen * 1.15);
+      reasons.push(`Many open job cards (${jobCardOpenCount}), increase jobCardOpen penalty by 15%`);
+    }
+
+    // Analyze conflicts
+    const conflictsHighCount = ranked.filter(t => 
+      (t.conflicts || []).some((c: any) => c.severity === "HIGH")
+    ).length;
+    if (conflictsHighCount > 0) {
+      weightAdjustments.conflictHighPenalty = Math.round(weights.conflictHighPenalty * 1.1);
+      reasons.push(`Found ${conflictsHighCount} trainsets with HIGH severity conflicts, increase conflictHighPenalty by 10%`);
+    }
+
+    // Overall score analysis
+    if (avgScore < 10) {
+      reasons.push(`Average score is low (${avgScore.toFixed(1)}), consider increasing positive weights`);
+    } else if (avgScore > 30) {
+      reasons.push(`Average score is high (${avgScore.toFixed(1)}), current weights are working well`);
+    }
+
+    setSuggestions({
+      minScore: suggestedMinScore,
+      weightAdjustments: Object.keys(weightAdjustments).length > 0 ? weightAdjustments : undefined,
+      reasons: reasons.length > 0 ? reasons : ["No specific adjustments needed based on current data distribution"],
+    });
+    if (showToast) {
+      setShowSuggestions(true);
+      toast.success("ML suggestions generated");
+    }
+  };
+
+  const handleApplySuggestions = () => {
+    if (!suggestions) return;
+
+    if (suggestions.minScore !== undefined) {
+      setMinScore(String(suggestions.minScore));
+    }
+
+    if (suggestions.weightAdjustments) {
+      setWeightOverrides(prev => ({
+        ...prev,
+        ...suggestions.weightAdjustments,
+      }));
+    }
+
+    setShowSuggestions(false);
+    toast.success("ML suggestions applied successfully");
+  };
+
   useEffect(() => {
     setSkip(0);
   }, [decision, brandingPriority, cleaningStatus, jobCardOpen, minScore]);
+
+  // Auto-generate suggestions when data loads
+  useEffect(() => {
+    if (data?.ranked && data.ranked.length > 0 && !suggestions) {
+      generateMLSuggestions(false); // Don't show toast on auto-generation
+    }
+  }, [data]);
 
   if (isLoading) return <div className="p-6">Loading...</div>;
   if (error) return <div className="p-6 text-red-600">Error: {error.message}</div>;
@@ -196,6 +358,10 @@ export default function ScoredInductionPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Scored Induction</h1>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={generateMLSuggestions}>
+            <Sparkles className="w-4 h-4 mr-2" />
+            ML Suggestions
+          </Button>
           <Button variant="outline" size="sm" onClick={exportJson}>
             <Download className="w-4 h-4 mr-2" />
             JSON
@@ -279,8 +445,47 @@ export default function ScoredInductionPage() {
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-muted-foreground">Min score</div>
-            <Input value={minScore} onChange={(e) => setMinScore(e.target.value)} placeholder="e.g. 10" />
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-muted-foreground">Min score</div>
+              {suggestions?.minScore !== undefined && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 px-2 text-xs"
+                        onClick={() => setMinScore(String(suggestions.minScore))}
+                      >
+                        <Sparkles className="w-3 h-3 mr-1 text-blue-500" />
+                        {suggestions.minScore}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>ML suggests: {suggestions.minScore}</p>
+                      <p className="text-xs text-muted-foreground">Click to apply</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
+            <div className="relative">
+              <Input value={minScore} onChange={(e) => setMinScore(e.target.value)} placeholder="e.g. 10" />
+              {suggestions?.minScore !== undefined && minScore !== String(suggestions.minScore) && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Lightbulb className="w-4 h-4 text-blue-500 cursor-pointer" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Suggested: {suggestions.minScore}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="md:col-span-5 flex items-center justify-end">
@@ -303,8 +508,27 @@ export default function ScoredInductionPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            <span>Scoring Weights</span>
             <div className="flex items-center gap-2">
+              <span>Scoring Weights</span>
+              {suggestions?.weightAdjustments && Object.keys(suggestions.weightAdjustments).length > 0 && (
+                <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                  <Sparkles className="w-3 h-3 mr-1" />
+                  {Object.keys(suggestions.weightAdjustments).length} suggestions
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {suggestions?.weightAdjustments && Object.keys(suggestions.weightAdjustments).length > 0 && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleApplySuggestions}
+                  className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Apply All Suggestions
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -363,29 +587,109 @@ export default function ScoredInductionPage() {
             <div>Manual override: {currentWeights.manualOverridePenalty}</div>
           </div>
 
+          {suggestions?.reasons && suggestions.reasons.length > 0 && (
+            <Alert className="mb-4 border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800">
+              <Lightbulb className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <AlertDescription className="text-sm">
+                <div className="font-semibold text-blue-900 dark:text-blue-100 mb-2">ML Analysis:</div>
+                <ul className="space-y-1 text-blue-800 dark:text-blue-300">
+                  {suggestions.reasons.slice(0, 3).map((reason, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-blue-500 mt-0.5">•</span>
+                      <span>{reason}</span>
+                    </li>
+                  ))}
+                  {suggestions.reasons.length > 3 && (
+                    <li className="text-xs text-blue-600 dark:text-blue-400 italic">
+                      +{suggestions.reasons.length - 3} more insights
+                    </li>
+                  )}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {(Object.keys(weights) as (keyof ScoringWeights)[]).map((k) => (
-              <div key={String(k)} className="space-y-1">
-                <div className="text-xs text-muted-foreground">{String(k)}</div>
-                <Input
-                  type="number"
-                  value={weightOverrides[k] ?? ""}
-                  placeholder={String(weights[k])}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setWeightOverrides((prev) => {
-                      if (!v.trim()) {
-                        const { [k]: _, ...rest } = prev;
-                        return rest;
-                      }
-                      const num = Number(v);
-                      if (!Number.isFinite(num)) return prev;
-                      return { ...prev, [k]: num };
-                    });
-                  }}
-                />
-              </div>
-            ))}
+            {(Object.keys(weights) as (keyof ScoringWeights)[]).map((k) => {
+              const hasSuggestion = suggestions?.weightAdjustments?.[k] !== undefined;
+              const suggestedValue = suggestions?.weightAdjustments?.[k];
+              const currentValue = weightOverrides[k] ?? weights[k];
+              const isApplied = hasSuggestion && weightOverrides[k] === suggestedValue;
+
+              return (
+                <div key={String(k)} className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">{String(k)}</div>
+                    {hasSuggestion && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-4 px-1.5 text-xs"
+                              onClick={() => {
+                                setWeightOverrides((prev) => ({
+                                  ...prev,
+                                  [k]: suggestedValue,
+                                }));
+                                toast.success(`Applied suggestion for ${k}`);
+                              }}
+                            >
+                              {isApplied ? (
+                                <CheckCircle2 className="w-3 h-3 text-green-500" />
+                              ) : (
+                                <Sparkles className="w-3 h-3 text-blue-500" />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Current: {currentValue}</p>
+                            <p>Suggested: {suggestedValue}</p>
+                            <p className="text-xs text-muted-foreground">Click to apply</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      value={weightOverrides[k] ?? ""}
+                      placeholder={String(weights[k])}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setWeightOverrides((prev) => {
+                          if (!v.trim()) {
+                            const { [k]: _, ...rest } = prev;
+                            return rest;
+                          }
+                          const num = Number(v);
+                          if (!Number.isFinite(num)) return prev;
+                          return { ...prev, [k]: num };
+                        });
+                      }}
+                      className={hasSuggestion && !isApplied ? "border-blue-300 dark:border-blue-700" : ""}
+                    />
+                    {hasSuggestion && !isApplied && (
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Lightbulb className="w-3.5 h-3.5 text-blue-500 cursor-pointer" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>ML suggests: {suggestedValue}</p>
+                              <p className="text-xs">Change: {suggestedValue! - weights[k] > 0 ? '+' : ''}{suggestedValue! - weights[k]}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="flex items-center justify-end gap-2">
@@ -577,6 +881,83 @@ export default function ScoredInductionPage() {
           <ChevronRight className="w-4 h-4 ml-2" />
         </Button>
       </div>
+
+      {/* ML Suggestions Dialog */}
+      <Dialog open={showSuggestions} onOpenChange={setShowSuggestions}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5" />
+              ML Suggestions for Scored Induction
+            </DialogTitle>
+            <DialogDescription>
+              Based on your current data distribution, here are optimized suggestions for min score and weight adjustments.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {suggestions?.minScore !== undefined && (
+              <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                <div className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                  Suggested Min Score
+                </div>
+                <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">
+                  {suggestions.minScore}
+                </div>
+                <div className="text-sm text-blue-600 dark:text-blue-400 mt-1">
+                  Current: {minScore || "Not set"}
+                </div>
+              </div>
+            )}
+
+            {suggestions?.weightAdjustments && Object.keys(suggestions.weightAdjustments).length > 0 && (
+              <div className="p-4 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+                <div className="font-semibold text-green-900 dark:text-green-100 mb-2">
+                  Suggested Weight Adjustments
+                </div>
+                <div className="space-y-2">
+                  {Object.entries(suggestions.weightAdjustments).map(([key, value]) => (
+                    <div key={key} className="flex items-center justify-between text-sm">
+                      <span className="text-green-700 dark:text-green-300">{key}:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-green-600 dark:text-green-400">
+                          {weights[key as keyof ScoringWeights]} →
+                        </span>
+                        <span className="font-bold text-green-800 dark:text-green-200">
+                          {value}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800">
+              <div className="font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                Analysis & Reasoning
+              </div>
+              <ul className="space-y-2">
+                {suggestions?.reasons.map((reason, idx) => (
+                  <li key={idx} className="text-sm text-gray-700 dark:text-gray-300 flex items-start gap-2">
+                    <span className="text-blue-500 mt-1">•</span>
+                    <span>{reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={handleApplySuggestions} className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700">
+              Apply Suggestions
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
