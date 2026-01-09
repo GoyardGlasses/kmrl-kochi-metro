@@ -13,60 +13,71 @@ const router = Router();
 
 // Helper function to save scoring config with clean data structure
 async function saveScoringConfig(weights: any, req: AuthRequest, res: any) {
-  // Clean and validate weights - only keep valid ScoringWeights properties
-  const cleanedWeights: any = {};
-  const validWeightKeys = [
-    "fitnessPass", "fitnessWarn", "fitnessFail",
-    "lowMileage", "highMileage",
-    "brandingHigh", "brandingMedium", "brandingLow",
-    "cleaningCompleted", "cleaningPending", "cleaningOverdue",
-    "jobCardClear", "jobCardOpen",
-    "conflictHighPenalty", "conflictMediumPenalty", "conflictLowPenalty",
-    "explanationBlockerPenalty", "explanationWarningPenalty", "manualOverridePenalty"
-  ];
+  try {
+    // Clean and validate weights - only keep valid ScoringWeights properties
+    const cleanedWeights: any = {};
+    const validWeightKeys = [
+      "fitnessPass", "fitnessWarn", "fitnessFail",
+      "lowMileage", "highMileage",
+      "brandingHigh", "brandingMedium", "brandingLow",
+      "cleaningCompleted", "cleaningPending", "cleaningOverdue",
+      "jobCardClear", "jobCardOpen",
+      "conflictHighPenalty", "conflictMediumPenalty", "conflictLowPenalty",
+      "explanationBlockerPenalty", "explanationWarningPenalty", "manualOverridePenalty"
+    ];
 
-  // Extract only valid weight properties and ensure they are numbers
-  for (const key of validWeightKeys) {
-    if (key in weights) {
-      const value = Number(weights[key]);
-      if (Number.isFinite(value)) {
-        cleanedWeights[key] = value;
+    // Extract only valid weight properties and ensure they are numbers
+    for (const key of validWeightKeys) {
+      if (key in weights) {
+        const value = Number(weights[key]);
+        if (Number.isFinite(value)) {
+          cleanedWeights[key] = value;
+        }
       }
     }
+
+    // Merge with defaults for any missing keys
+    const finalWeights = { ...DEFAULT_WEIGHTS, ...cleanedWeights };
+
+    // Save to MongoDB with clean structure
+    const updated = await ScoringConfig.findOneAndUpdate(
+      { key: "default" },
+      { 
+        key: "default", 
+        weights: finalWeights, 
+        updatedBy: req.user?.email || "unknown"
+      },
+      { new: true, upsert: true }
+    ).lean();
+
+    // Create audit log with clean data (wrap in try-catch to not fail if audit fails)
+    try {
+      await AuditLog.create({
+        action: "SIMULATE" as any, // Use existing action type
+        actorEmail: req.user?.email || "unknown",
+        actorId: req.user?.id || "unknown",
+        metadata: {
+          actionType: "UPDATE_SCORING_CONFIG",
+          weights: finalWeights,
+          configKey: "default",
+          changes: Object.keys(cleanedWeights),
+        },
+      });
+    } catch (auditError) {
+      console.warn("Failed to create audit log for scoring config update:", auditError);
+      // Continue even if audit log fails
+    }
+
+    res.json({ 
+      key: updated.key, 
+      weights: updated.weights, 
+      updatedBy: updated.updatedBy, 
+      updatedAt: updated.updatedAt 
+    });
+  } catch (error: any) {
+    console.error("saveScoringConfig error:", error);
+    throw error; // Re-throw to be handled by route handler
   }
-
-  // Merge with defaults for any missing keys
-  const finalWeights = { ...DEFAULT_WEIGHTS, ...cleanedWeights };
-
-  // Save to MongoDB with clean structure
-  const updated = await ScoringConfig.findOneAndUpdate(
-    { key: "default" },
-    { 
-      key: "default", 
-      weights: finalWeights, 
-      updatedBy: req.user?.email 
-    },
-    { new: true, upsert: true }
-  ).lean();
-
-  // Create audit log with clean data
-  await AuditLog.create({
-    action: "UPDATE_SCORING_CONFIG",
-    actorEmail: req.user?.email,
-    actorId: req.user?.id,
-    metadata: {
-      weights: finalWeights,
-      configKey: "default",
-      changes: Object.keys(cleanedWeights),
-    },
-  });
-
-  res.json({ 
-    key: updated.key, 
-    weights: updated.weights, 
-    updatedBy: updated.updatedBy, 
-    updatedAt: updated.updatedAt 
-  });
 }
 
 router.get("/ml-suggestions", async (req, res: any) => {
@@ -358,11 +369,15 @@ router.put(
   authMiddleware,
   async (req: AuthRequest, res: any) => {
     try {
+      console.log("PUT /scoring-config - Request body:", JSON.stringify(req.body, null, 2));
+      console.log("PUT /scoring-config - User:", req.user);
+      
       // Frontend sends weights directly as the body (ScoringWeights object)
       const weights = req.body;
       
       // Validate weights structure - check if it looks like a ScoringWeights object
       if (!weights || typeof weights !== "object" || Array.isArray(weights)) {
+        console.error("Invalid weights format - not an object or is array");
         return res.status(400).json({ error: "Invalid weights format. Expected an object with scoring weight properties." });
       }
 
@@ -377,12 +392,14 @@ router.put(
           const extractedWeights = weights.weights;
           return await saveScoringConfig(extractedWeights, req, res);
         }
+        console.error("Invalid weights format - missing expected keys. Received keys:", weightKeys);
         return res.status(400).json({ error: "Invalid weights format. Missing expected weight properties." });
       }
 
       return await saveScoringConfig(weights, req, res);
     } catch (error: any) {
       console.error("Update scoring config error:", error);
+      console.error("Error stack:", error.stack);
       if (error.name === "MongoNetworkError" || error.message?.includes("connect")) {
         return res.status(503).json({ error: "Database connection failed. Please check if MongoDB is running." });
       }
@@ -395,16 +412,22 @@ router.post("/scoring-config/reset", authMiddleware, async (req: AuthRequest, re
   try {
     await ScoringConfig.deleteOne({ key: "default" });
     
-    // Create audit log
-    await AuditLog.create({
-      action: "RESET_SCORING_CONFIG",
-      actorEmail: req.user?.email,
-      actorId: req.user?.id,
-      metadata: {
-        configKey: "default",
-        resetTo: "default",
-      },
-    });
+    // Create audit log (wrap in try-catch to not fail if audit fails)
+    try {
+      await AuditLog.create({
+        action: "SIMULATE" as any, // Use existing action type
+        actorEmail: req.user?.email || "unknown",
+        actorId: req.user?.id || "unknown",
+        metadata: {
+          actionType: "RESET_SCORING_CONFIG",
+          configKey: "default",
+          resetTo: "default",
+        },
+      });
+    } catch (auditError) {
+      console.warn("Failed to create audit log for scoring config reset:", auditError);
+      // Continue even if audit log fails
+    }
 
     res.json({ 
       key: "default", 
