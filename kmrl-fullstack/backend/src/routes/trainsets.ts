@@ -11,26 +11,53 @@ import { MLSuggestion } from "@/models/MLSuggestion";
 
 const router = Router();
 
-// Helper function to save scoring config
+// Helper function to save scoring config with clean data structure
 async function saveScoringConfig(weights: any, req: AuthRequest, res: any) {
+  // Clean and validate weights - only keep valid ScoringWeights properties
+  const cleanedWeights: any = {};
+  const validWeightKeys = [
+    "fitnessPass", "fitnessWarn", "fitnessFail",
+    "lowMileage", "highMileage",
+    "brandingHigh", "brandingMedium", "brandingLow",
+    "cleaningCompleted", "cleaningPending", "cleaningOverdue",
+    "jobCardClear", "jobCardOpen",
+    "conflictHighPenalty", "conflictMediumPenalty", "conflictLowPenalty",
+    "explanationBlockerPenalty", "explanationWarningPenalty", "manualOverridePenalty"
+  ];
+
+  // Extract only valid weight properties and ensure they are numbers
+  for (const key of validWeightKeys) {
+    if (key in weights) {
+      const value = Number(weights[key]);
+      if (Number.isFinite(value)) {
+        cleanedWeights[key] = value;
+      }
+    }
+  }
+
+  // Merge with defaults for any missing keys
+  const finalWeights = { ...DEFAULT_WEIGHTS, ...cleanedWeights };
+
+  // Save to MongoDB with clean structure
   const updated = await ScoringConfig.findOneAndUpdate(
     { key: "default" },
     { 
       key: "default", 
-      weights, 
+      weights: finalWeights, 
       updatedBy: req.user?.email 
     },
     { new: true, upsert: true }
   ).lean();
 
-  // Create audit log
+  // Create audit log with clean data
   await AuditLog.create({
     action: "UPDATE_SCORING_CONFIG",
     actorEmail: req.user?.email,
     actorId: req.user?.id,
     metadata: {
-      weights,
+      weights: finalWeights,
       configKey: "default",
+      changes: Object.keys(cleanedWeights),
     },
   });
 
