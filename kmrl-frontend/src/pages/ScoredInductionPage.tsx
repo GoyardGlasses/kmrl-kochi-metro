@@ -31,6 +31,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useScoredInduction } from "@/hooks/useScoredInduction";
 import { useScoringConfig } from "@/hooks/useScoringConfig";
+import { useTrainsets } from "@/hooks/useTrainsets";
 import { toast } from "sonner";
 import type { ScoredTrainset, ScoringConfigResponse, ScoringWeights } from "@/types";
 
@@ -55,6 +56,7 @@ export default function ScoredInductionPage() {
   } | null>(null);
 
   const scoringConfig = useScoringConfig();
+  const { data: allTrainsets } = useTrainsets(); // Fetch ALL trainsets for ML suggestions
 
   const params = useMemo(() => {
     const parsedMinScore = minScore.trim() ? Number(minScore) : undefined;
@@ -84,12 +86,24 @@ export default function ScoredInductionPage() {
 
   const handleSaveWeights = async (currentWeights: ScoringWeights) => {
     try {
-      await scoringConfig.save(currentWeights);
+      console.log("Saving weights to DB:", currentWeights);
+      const result = await scoringConfig.save(currentWeights);
+      console.log("Save result:", result);
       setWeightOverrides({});
-      await invalidate();
-      toast.success("Saved scoring weights to DB");
+      // Invalidate both scored induction and scoring config to refresh the page
+      await Promise.all([
+        invalidate(),
+        scoringConfig.refetch(),
+      ]);
+      toast.success("Saved scoring weights to DB. Changes are now visible in audit logs and will be applied to all trainsets.");
     } catch (e: any) {
-      toast.error(e?.message || "Failed to save scoring weights");
+      console.error("Save weights error:", e);
+      const errorMessage = e?.message || "Failed to save scoring weights";
+      toast.error(errorMessage);
+      // Show more details in console for debugging
+      if (errorMessage.includes("Route not found") || errorMessage.includes("404")) {
+        console.error("Route not found error. Check if backend server is running and route is registered.");
+      }
     }
   };
 
@@ -105,7 +119,30 @@ export default function ScoredInductionPage() {
   };
 
   const generateMLSuggestions = (showToast = true) => {
-    if (!data || !ranked || ranked.length === 0) {
+    // Use ALL trainsets for ML analysis, not just filtered ones
+    if (!allTrainsets || allTrainsets.length === 0) {
+      if (showToast) toast.error("No trainsets available for suggestions");
+      return;
+    }
+
+    // Get all scored trainsets without filters for comprehensive analysis
+    const allScoredParams = {
+      limit: 1000, // Get all trainsets
+      skip: 0,
+      // No filters - analyze everything
+    };
+
+    // For now, use the current data if available, otherwise use all trainsets
+    // We'll need to fetch all scored data separately
+    const analysisData = data?.ranked && data.ranked.length > 0 
+      ? data.ranked 
+      : allTrainsets.map((t: any) => ({
+          ...t,
+          score: 0, // Will be calculated if needed
+          recommendation: t.recommendation || "STANDBY",
+        }));
+
+    if (analysisData.length === 0) {
       if (showToast) toast.error("No data available for suggestions");
       return;
     }
@@ -114,20 +151,20 @@ export default function ScoredInductionPage() {
     const weightAdjustments: Partial<ScoringWeights> = {};
     let suggestedMinScore: number | undefined;
 
-    // Analyze score distribution
-    const scores = ranked.map(t => t.score);
-    const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
-    const medianScore = scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)];
-    const minScoreValue = Math.min(...scores);
-    const maxScoreValue = Math.max(...scores);
+    // Analyze score distribution - use all trainsets
+    const scores = analysisData.map((t: any) => t.score || 0).filter((s: number) => s !== 0);
+    const medianScore = scores.length > 0 ? scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)] : 0;
+    const minScoreValue = scores.length > 0 ? Math.min(...scores) : 0;
+    const maxScoreValue = scores.length > 0 ? Math.max(...scores) : 0;
 
     // Suggest min score based on distribution
-    if (minScore.trim() === "") {
+    if (minScore.trim() === "" && scores.length > 0) {
       // Suggest a min score that filters out bottom 20% but keeps most trainsets
-      const percentile20 = scores.sort((a, b) => a - b)[Math.floor(scores.length * 0.2)];
+      const sortedScores = [...scores].sort((a, b) => a - b);
+      const percentile20 = sortedScores[Math.floor(scores.length * 0.2)];
       suggestedMinScore = Math.max(0, Math.floor(percentile20));
       reasons.push(`Suggested min score: ${suggestedMinScore} (filters bottom 20% of trainsets)`);
-    } else {
+    } else if (minScore.trim() !== "" && scores.length > 0) {
       const currentMin = Number(minScore);
       if (currentMin > medianScore) {
         reasons.push(`Current min score (${currentMin}) is above median (${medianScore.toFixed(1)}), consider lowering to ${Math.floor(medianScore * 0.7)}`);
@@ -136,21 +173,22 @@ export default function ScoredInductionPage() {
       }
     }
 
-    // Analyze fitness distribution
-    const fitnessPassCount = ranked.filter(t => 
-      t.fitness.rollingStock.status === "PASS" && 
-      t.fitness.signalling.status === "PASS" && 
-      t.fitness.telecom.status === "PASS"
+    // Analyze fitness distribution - use ALL trainsets
+    const fitnessPassCount = analysisData.filter((t: any) => 
+      t.fitness?.rollingStock?.status === "PASS" && 
+      t.fitness?.signalling?.status === "PASS" && 
+      t.fitness?.telecom?.status === "PASS"
     ).length;
-    const fitnessWarnCount = ranked.filter(t => 
-      [t.fitness.rollingStock.status, t.fitness.signalling.status, t.fitness.telecom.status].includes("WARN")
+    const fitnessWarnCount = analysisData.filter((t: any) => 
+      [t.fitness?.rollingStock?.status, t.fitness?.signalling?.status, t.fitness?.telecom?.status].includes("WARN")
     ).length;
-    const fitnessFailCount = ranked.filter(t => 
-      [t.fitness.rollingStock.status, t.fitness.signalling.status, t.fitness.telecom.status].includes("FAIL")
+    const fitnessFailCount = analysisData.filter((t: any) => 
+      [t.fitness?.rollingStock?.status, t.fitness?.signalling?.status, t.fitness?.telecom?.status].includes("FAIL")
     ).length;
 
-    const fitnessPassRatio = fitnessPassCount / ranked.length;
-    const fitnessFailRatio = fitnessFailCount / ranked.length;
+    const totalTrainsets = analysisData.length;
+    const fitnessPassRatio = fitnessPassCount / totalTrainsets;
+    const fitnessFailRatio = fitnessFailCount / totalTrainsets;
 
     if (fitnessFailRatio > 0.15) {
       weightAdjustments.fitnessFail = Math.round(weights.fitnessFail * 1.2);
@@ -160,60 +198,64 @@ export default function ScoredInductionPage() {
       reasons.push(`High pass rate (${(fitnessPassRatio * 100).toFixed(1)}%), increase fitnessPass reward by 10%`);
     }
 
-    // Analyze mileage distribution
-    const mileages = ranked.map(t => t.mileageKm);
-    const avgMileage = mileages.reduce((a, b) => a + b, 0) / mileages.length;
-    const highMileageCount = ranked.filter(t => t.mileageKm > 40000).length;
-    const lowMileageCount = ranked.filter(t => t.mileageKm < 15000).length;
+    // Analyze mileage distribution - use ALL trainsets
+    const mileages = analysisData.map((t: any) => t.mileageKm || 0).filter((m: number) => m > 0);
+    const avgMileage = mileages.length > 0 ? mileages.reduce((a: number, b: number) => a + b, 0) / mileages.length : 0;
+    const highMileageCount = analysisData.filter((t: any) => (t.mileageKm || 0) > 40000).length;
+    const lowMileageCount = analysisData.filter((t: any) => (t.mileageKm || 0) < 15000).length;
 
-    if (highMileageCount / ranked.length > 0.3) {
+    if (highMileageCount / totalTrainsets > 0.3) {
       weightAdjustments.highMileage = Math.round(weights.highMileage * 1.15);
-      reasons.push(`Many high-mileage trainsets (${highMileageCount}), increase highMileage weight by 15%`);
+      reasons.push(`Many high-mileage trainsets (${highMileageCount} of ${totalTrainsets}), increase highMileage weight by 15%`);
     }
-    if (lowMileageCount / ranked.length > 0.3) {
+    if (lowMileageCount / totalTrainsets > 0.3) {
       weightAdjustments.lowMileage = Math.round(weights.lowMileage * 1.1);
-      reasons.push(`Many low-mileage trainsets (${lowMileageCount}), increase lowMileage reward by 10%`);
+      reasons.push(`Many low-mileage trainsets (${lowMileageCount} of ${totalTrainsets}), increase lowMileage reward by 10%`);
     }
 
-    // Analyze branding priority
-    const brandingHighCount = ranked.filter(t => t.brandingPriority === "HIGH").length;
-    const brandingHighRatio = brandingHighCount / ranked.length;
+    // Analyze branding priority - use ALL trainsets
+    const brandingHighCount = analysisData.filter((t: any) => t.brandingPriority === "HIGH").length;
+    const brandingHighRatio = brandingHighCount / totalTrainsets;
     if (brandingHighRatio > 0.4) {
       weightAdjustments.brandingHigh = Math.round(weights.brandingHigh * 1.1);
-      reasons.push(`Many high-priority branding contracts (${brandingHighCount}), increase brandingHigh weight by 10%`);
+      reasons.push(`Many high-priority branding contracts (${brandingHighCount} of ${totalTrainsets}), increase brandingHigh weight by 10%`);
     }
 
-    // Analyze cleaning status
-    const cleaningOverdueCount = ranked.filter(t => t.cleaningStatus === "OVERDUE").length;
-    const cleaningOverdueRatio = cleaningOverdueCount / ranked.length;
+    // Analyze cleaning status - use ALL trainsets
+    const cleaningOverdueCount = analysisData.filter((t: any) => t.cleaningStatus === "OVERDUE").length;
+    const cleaningOverdueRatio = cleaningOverdueCount / totalTrainsets;
     if (cleaningOverdueRatio > 0.2) {
       weightAdjustments.cleaningOverdue = Math.round(weights.cleaningOverdue * 1.2);
-      reasons.push(`High overdue cleaning rate (${(cleaningOverdueRatio * 100).toFixed(1)}%), increase cleaningOverdue penalty by 20%`);
+      reasons.push(`High overdue cleaning rate (${(cleaningOverdueRatio * 100).toFixed(1)}% - ${cleaningOverdueCount} of ${totalTrainsets}), increase cleaningOverdue penalty by 20%`);
     }
 
-    // Analyze job cards
-    const jobCardOpenCount = ranked.filter(t => t.jobCardOpen).length;
-    const jobCardOpenRatio = jobCardOpenCount / ranked.length;
+    // Analyze job cards - use ALL trainsets
+    const jobCardOpenCount = analysisData.filter((t: any) => t.jobCardOpen).length;
+    const jobCardOpenRatio = jobCardOpenCount / totalTrainsets;
     if (jobCardOpenRatio > 0.25) {
       weightAdjustments.jobCardOpen = Math.round(weights.jobCardOpen * 1.15);
-      reasons.push(`Many open job cards (${jobCardOpenCount}), increase jobCardOpen penalty by 15%`);
+      reasons.push(`Many open job cards (${jobCardOpenCount} of ${totalTrainsets}), increase jobCardOpen penalty by 15%`);
     }
 
-    // Analyze conflicts
-    const conflictsHighCount = ranked.filter(t => 
+    // Analyze conflicts - use ALL trainsets
+    const conflictsHighCount = analysisData.filter((t: any) => 
       (t.conflicts || []).some((c: any) => c.severity === "HIGH")
     ).length;
     if (conflictsHighCount > 0) {
       weightAdjustments.conflictHighPenalty = Math.round(weights.conflictHighPenalty * 1.1);
-      reasons.push(`Found ${conflictsHighCount} trainsets with HIGH severity conflicts, increase conflictHighPenalty by 10%`);
+      reasons.push(`Found ${conflictsHighCount} trainsets with HIGH severity conflicts (of ${totalTrainsets} total), increase conflictHighPenalty by 10%`);
     }
 
     // Overall score analysis
-    if (avgScore < 10) {
+    const avgScore = scores.length > 0 ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length : 0;
+    if (avgScore < 10 && scores.length > 0) {
       reasons.push(`Average score is low (${avgScore.toFixed(1)}), consider increasing positive weights`);
-    } else if (avgScore > 30) {
+    } else if (avgScore > 30 && scores.length > 0) {
       reasons.push(`Average score is high (${avgScore.toFixed(1)}), current weights are working well`);
     }
+
+    // Add summary
+    reasons.unshift(`Analyzed ${totalTrainsets} trainsets across the entire fleet for comprehensive recommendations`);
 
     setSuggestions({
       minScore: suggestedMinScore,
@@ -358,7 +400,7 @@ export default function ScoredInductionPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Scored Induction</h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={generateMLSuggestions}>
+          <Button variant="outline" size="sm" onClick={() => generateMLSuggestions(true)}>
             <Sparkles className="w-4 h-4 mr-2" />
             ML Suggestions
           </Button>

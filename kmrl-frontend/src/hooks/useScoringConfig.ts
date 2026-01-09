@@ -39,6 +39,7 @@ export const useScoringConfig = () => {
       reset: resetMutation.mutateAsync,
       resetStatus: resetMutation.status,
       resetError: resetMutation.error,
+      refetch: query.refetch,
     }),
     [query, updateMutation, resetMutation]
   );
