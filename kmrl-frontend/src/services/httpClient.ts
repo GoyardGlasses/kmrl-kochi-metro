@@ -87,9 +87,11 @@ export class HttpClient {
           if (errorData.error) {
             errorMessage = errorData.error;
           } else if (errorData.errors && Array.isArray(errorData.errors)) {
-            errorMessage = errorData.errors.map((e: any) => e.msg || e.message).join(", ");
+            errorMessage = errorData.errors.map((e: any) => e.msg || e.message || String(e)).join(", ");
           } else if (errorData.message) {
             errorMessage = errorData.message;
+          } else if (errorData.details) {
+            errorMessage = errorData.details;
           }
         } catch {
           // If response is not JSON, use default error message

@@ -44,7 +44,12 @@ router.post(
         // MongoDB duplicate key error
         return res.status(409).json({ error: "Email already registered" });
       }
-      res.status(500).json({ error: "Signup failed", details: error.message });
+      // Check for MongoDB connection errors
+      if (error.name === "MongoNetworkError" || error.message?.includes("MongoServerError") || error.message?.includes("connect")) {
+        return res.status(503).json({ error: "Database connection failed. Please check if MongoDB is running." });
+      }
+      const errorMessage = error.message || "Signup failed";
+      res.status(500).json({ error: errorMessage });
     }
   }
 );
