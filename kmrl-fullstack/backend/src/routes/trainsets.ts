@@ -11,6 +11,37 @@ import { MLSuggestion } from "@/models/MLSuggestion";
 
 const router = Router();
 
+// Helper function to save scoring config
+async function saveScoringConfig(weights: any, req: AuthRequest, res: any) {
+  const updated = await ScoringConfig.findOneAndUpdate(
+    { key: "default" },
+    { 
+      key: "default", 
+      weights, 
+      updatedBy: req.user?.email 
+    },
+    { new: true, upsert: true }
+  ).lean();
+
+  // Create audit log
+  await AuditLog.create({
+    action: "UPDATE_SCORING_CONFIG",
+    actorEmail: req.user?.email,
+    actorId: req.user?.id,
+    metadata: {
+      weights,
+      configKey: "default",
+    },
+  });
+
+  res.json({ 
+    key: updated.key, 
+    weights: updated.weights, 
+    updatedBy: updated.updatedBy, 
+    updatedAt: updated.updatedAt 
+  });
+}
+
 router.get("/ml-suggestions", async (req, res: any) => {
   try {
     const limit = Math.min(parseInt((req.query.limit as string) || "10", 10), 100);
@@ -268,6 +299,99 @@ router.get("/scored-induction", async (req, res: any) => {
   } catch (error) {
     console.error("Scored induction error:", error);
     res.status(500).json({ error: "Failed to compute scored induction" });
+  }
+});
+
+// Scoring Config routes (matching frontend expectations)
+router.get("/scoring-config", authMiddleware, async (req: AuthRequest, res: any) => {
+  try {
+    const existing = await ScoringConfig.findOne({ key: "default" }).lean();
+    if (!existing) {
+      return res.json({ 
+        key: "default", 
+        weights: DEFAULT_WEIGHTS,
+        updatedBy: undefined,
+        updatedAt: undefined
+      });
+    }
+    res.json({ 
+      key: existing.key, 
+      weights: existing.weights, 
+      updatedBy: existing.updatedBy, 
+      updatedAt: existing.updatedAt 
+    });
+  } catch (error) {
+    console.error("Get scoring config error:", error);
+    res.status(500).json({ error: "Failed to fetch scoring config" });
+  }
+});
+
+router.put(
+  "/scoring-config",
+  authMiddleware,
+  async (req: AuthRequest, res: any) => {
+    try {
+      // Frontend sends weights directly as the body (ScoringWeights object)
+      const weights = req.body;
+      
+      // Validate weights structure - check if it looks like a ScoringWeights object
+      if (!weights || typeof weights !== "object" || Array.isArray(weights)) {
+        return res.status(400).json({ error: "Invalid weights format. Expected an object with scoring weight properties." });
+      }
+
+      // Validate that we have at least some weight properties
+      const weightKeys = Object.keys(weights);
+      const expectedKeys = ["fitnessPass", "fitnessWarn", "fitnessFail", "lowMileage", "highMileage"];
+      const hasWeightKeys = expectedKeys.some(key => key in weights);
+      
+      if (!hasWeightKeys && weightKeys.length > 0) {
+        // Might be a nested structure, try to extract
+        if (weights.weights && typeof weights.weights === "object") {
+          const extractedWeights = weights.weights;
+          return await saveScoringConfig(extractedWeights, req, res);
+        }
+        return res.status(400).json({ error: "Invalid weights format. Missing expected weight properties." });
+      }
+
+      return await saveScoringConfig(weights, req, res);
+    } catch (error: any) {
+      console.error("Update scoring config error:", error);
+      if (error.name === "MongoNetworkError" || error.message?.includes("connect")) {
+        return res.status(503).json({ error: "Database connection failed. Please check if MongoDB is running." });
+      }
+      res.status(500).json({ error: "Failed to update scoring config", details: error.message });
+    }
+  }
+);
+
+router.post("/scoring-config/reset", authMiddleware, async (req: AuthRequest, res: any) => {
+  try {
+    await ScoringConfig.deleteOne({ key: "default" });
+    
+    // Create audit log
+    await AuditLog.create({
+      action: "RESET_SCORING_CONFIG",
+      actorEmail: req.user?.email,
+      actorId: req.user?.id,
+      metadata: {
+        configKey: "default",
+        resetTo: "default",
+      },
+    });
+
+    res.json({ 
+      key: "default", 
+      weights: DEFAULT_WEIGHTS, 
+      message: "Reset to default weights",
+      updatedBy: undefined,
+      updatedAt: undefined
+    });
+  } catch (error: any) {
+    console.error("Reset scoring config error:", error);
+    if (error.name === "MongoNetworkError" || error.message?.includes("connect")) {
+      return res.status(503).json({ error: "Database connection failed. Please check if MongoDB is running." });
+    }
+    res.status(500).json({ error: "Failed to reset scoring config", details: error.message });
   }
 });
 
